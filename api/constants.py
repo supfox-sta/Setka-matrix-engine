@@ -316,6 +316,7 @@ class AccountDataTypes:
     IGNORED_USER_LIST: Final = "m.ignored_user_list"
     TAG: Final = "m.tag"
     CONTACT_LIST: Final = "m.contact_list"
+    ROOM_WALLPAPER: Final = "m.room_wallpaper"
     PUSH_RULES: Final = "m.push_rules"
     # MSC4155: Invite filtering
     MSC4155_INVITE_PERMISSION_CONFIG: Final = (

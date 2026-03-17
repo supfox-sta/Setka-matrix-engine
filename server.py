@@ -80,6 +80,7 @@ from synapse.federation.transport.client import TransportLayerClient
 from synapse.handlers.account import AccountHandler
 from synapse.handlers.account_data import AccountDataHandler
 from synapse.handlers.contact_list import ContactListHandler
+from synapse.handlers.room_wallpaper import RoomWallpaperHandler
 from synapse.handlers.account_validity import AccountValidityHandler
 from synapse.handlers.admin import AdminHandler
 from synapse.handlers.appservice import ApplicationServicesHandler
@@ -1168,6 +1169,10 @@ class HomeServer(metaclass=abc.ABCMeta):
     @cache_in_self
     def get_contact_list_handler(self) -> ContactListHandler:
         return ContactListHandler(self)
+
+    @cache_in_self
+    def get_room_wallpaper_handler(self) -> RoomWallpaperHandler:
+        return RoomWallpaperHandler(self)
 
     @cache_in_self
     def get_room_summary_handler(self) -> RoomSummaryHandler:

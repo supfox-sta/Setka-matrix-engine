@@ -58,20 +58,22 @@ def _validate_metadata(metadata: object) -> JsonDict:
                 Codes.INVALID_PARAM,
             )
 
-    if key in {"display_name", "avatar_url", "note"}:
-        if not isinstance(value, str):
-            raise SynapseError(
-                400,
-                f"{key} must be a string",
-                Codes.INVALID_PARAM,
-            )
-    elif key in {"first_name", "last_name", "email", "phone"}:
-        if not isinstance(value, str):
-            raise SynapseError(
-                400,
-                f"{key} must be a string",
-                Codes.INVALID_PARAM,
-            )
+        if key in {"display_name", "avatar_url", "note"}:
+            if not isinstance(value, str):
+                raise SynapseError(
+                    400,
+                    f"{key} must be a string",
+                    Codes.INVALID_PARAM,
+                )
+            normalized[key] = value
+        elif key in {"first_name", "last_name", "email", "phone"}:
+            if not isinstance(value, str):
+                raise SynapseError(
+                    400,
+                    f"{key} must be a string",
+                    Codes.INVALID_PARAM,
+                )
+            normalized[key] = value
         elif key == "order":
             if not isinstance(value, int):
                 raise SynapseError(
@@ -79,6 +81,7 @@ def _validate_metadata(metadata: object) -> JsonDict:
                     "order must be an integer",
                     Codes.INVALID_PARAM,
                 )
+            normalized[key] = value
         elif key == "tags":
             if not isinstance(value, list) or not all(isinstance(tag, str) for tag in value):
                 raise SynapseError(
@@ -86,6 +89,7 @@ def _validate_metadata(metadata: object) -> JsonDict:
                     "tags must be a list of strings",
                     Codes.INVALID_PARAM,
                 )
+            normalized[key] = value
         elif key == "pinned":
             if not isinstance(value, bool):
                 raise SynapseError(
@@ -93,8 +97,7 @@ def _validate_metadata(metadata: object) -> JsonDict:
                     "pinned must be a boolean",
                     Codes.INVALID_PARAM,
                 )
-
-        normalized[key] = value
+            normalized[key] = value
 
     return normalized
 
@@ -163,7 +166,7 @@ class ContactMetadataServlet(RestServlet):
 
         await self.handler.update_contact_metadata(user_id, room_id, metadata)
 
-        return 200, {}
+        return 200, metadata
 
     async def on_GET(
         self, request: SynapseRequest, user_id: str, room_id: str
