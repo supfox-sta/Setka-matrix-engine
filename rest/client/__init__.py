@@ -59,6 +59,7 @@ __all__ = [
     "room_keys",
     "room_upgrade_rest_servlet",
     "room_wallpaper",
+    "setka_plus",
     "sendtodevice",
     "sync",
     "tags",

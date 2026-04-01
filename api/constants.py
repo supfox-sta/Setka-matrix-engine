@@ -317,6 +317,9 @@ class AccountDataTypes:
     TAG: Final = "m.tag"
     CONTACT_LIST: Final = "m.contact_list"
     ROOM_WALLPAPER: Final = "m.room_wallpaper"
+    SETKA_PLUS_SUBSCRIPTION: Final = "io.setka.plus.subscription"
+    SETKA_PLUS_STICKER_PACKS: Final = "io.setka.plus.sticker_packs"
+    SETKA_PLUS_PAYMENTS: Final = "io.setka.plus.payments"
     PUSH_RULES: Final = "m.push_rules"
     # MSC4155: Invite filtering
     MSC4155_INVITE_PERMISSION_CONFIG: Final = (
