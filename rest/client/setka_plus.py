@@ -123,6 +123,63 @@ class SetkaPlusStickerPackServlet(RestServlet):
         return 200, {}
 
 
+class SetkaPlusStickerPackShareServlet(RestServlet):
+    PATTERNS = client_patterns(
+        "/user/(?P<user_id>[^/]*)/setka_plus/sticker_packs/(?P<pack_id>[^/]*)/share$"
+    )
+    CATEGORY = "Setka Plus"
+
+    def __init__(self, hs: "HomeServer"):
+        super().__init__()
+        self.auth = hs.get_auth()
+        self.handler = hs.get_setka_plus_handler()
+
+    async def on_POST(
+        self, request: SynapseRequest, user_id: str, pack_id: str
+    ) -> tuple[int, JsonDict]:
+        await _assert_self(self.auth, request, user_id)
+        token = await self.handler.create_share_token(user_id, pack_id)
+        return 200, {"token": token, "url": self.handler.build_share_url(token)}
+
+
+class SetkaPlusSharedPackServlet(RestServlet):
+    PATTERNS = client_patterns(
+        "/user/(?P<user_id>[^/]*)/setka_plus/shared_packs/(?P<token>[^/]*)$"
+    )
+    CATEGORY = "Setka Plus"
+
+    def __init__(self, hs: "HomeServer"):
+        super().__init__()
+        self.auth = hs.get_auth()
+        self.handler = hs.get_setka_plus_handler()
+
+    async def on_GET(
+        self, request: SynapseRequest, user_id: str, token: str
+    ) -> tuple[int, JsonDict]:
+        await _assert_self(self.auth, request, user_id)
+        pack = await self.handler.resolve_shared_pack(token)
+        return 200, {"pack": pack}
+
+
+class SetkaPlusSharedPackImportServlet(RestServlet):
+    PATTERNS = client_patterns(
+        "/user/(?P<user_id>[^/]*)/setka_plus/shared_packs/(?P<token>[^/]*)/import$"
+    )
+    CATEGORY = "Setka Plus"
+
+    def __init__(self, hs: "HomeServer"):
+        super().__init__()
+        self.auth = hs.get_auth()
+        self.handler = hs.get_setka_plus_handler()
+
+    async def on_POST(
+        self, request: SynapseRequest, user_id: str, token: str
+    ) -> tuple[int, JsonDict]:
+        await _assert_self(self.auth, request, user_id)
+        pack = await self.handler.import_shared_pack(user_id, token)
+        return 200, pack
+
+
 class SetkaPlusPaymentsServlet(RestServlet):
     PATTERNS = client_patterns("/user/(?P<user_id>[^/]*)/setka_plus/payments$")
     CATEGORY = "Setka Plus"
@@ -256,6 +313,9 @@ def register_servlets(hs: "HomeServer", http_server: HttpServer) -> None:
     SetkaPlusPlansServlet(hs).register(http_server)
     SetkaPlusStickerPacksServlet(hs).register(http_server)
     SetkaPlusStickerPackServlet(hs).register(http_server)
+    SetkaPlusStickerPackShareServlet(hs).register(http_server)
+    SetkaPlusSharedPackServlet(hs).register(http_server)
+    SetkaPlusSharedPackImportServlet(hs).register(http_server)
     SetkaPlusPaymentsServlet(hs).register(http_server)
     SetkaPlusYooMoneyCreateServlet(hs).register(http_server)
     SetkaPlusYooMoneyProcessServlet(hs).register(http_server)

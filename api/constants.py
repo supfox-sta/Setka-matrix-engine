@@ -320,6 +320,8 @@ class AccountDataTypes:
     SETKA_PLUS_SUBSCRIPTION: Final = "io.setka.plus.subscription"
     SETKA_PLUS_STICKER_PACKS: Final = "io.setka.plus.sticker_packs"
     SETKA_PLUS_PAYMENTS: Final = "io.setka.plus.payments"
+    SETKA_PRIVACY: Final = "io.setka.privacy"
+    SETKA_PROFILE: Final = "io.setka.profile"
     PUSH_RULES: Final = "m.push_rules"
     # MSC4155: Invite filtering
     MSC4155_INVITE_PERMISSION_CONFIG: Final = (

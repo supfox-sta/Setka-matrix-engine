@@ -13,7 +13,9 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
 import os
 import tempfile
@@ -155,6 +157,22 @@ class SetkaPlusHandler:
         )
         self._plans_cache: list[JsonDict] | None = None
 
+        self._share_link_prefix = (
+            os.environ.get("SETKA_PLUS_SHARE_LINK_PREFIX", "https://web.setka-matrix.ru/#/setka-pack/").strip()
+        )
+        if not self._share_link_prefix:
+            self._share_link_prefix = "https://web.setka-matrix.ru/#/setka-pack/"
+
+        share_secret = os.environ.get("SETKA_PLUS_SHARE_SECRET", "").strip()
+        if share_secret:
+            self._share_secret = share_secret.encode("utf-8")
+        else:
+            # Stable secret from Synapse config.
+            self._share_secret = hs.config.key.macaroon_secret_key
+
+        share_ttl_days = _env_int("SETKA_PLUS_SHARE_TOKEN_TTL_DAYS", 90)
+        self._share_token_ttl_ms = share_ttl_days * 24 * 60 * 60 * 1000
+
     async def get_subscription(self, user_id: str) -> JsonDict:
         raw = await self._store.get_global_account_data_by_type_for_user(
             user_id, AccountDataTypes.SETKA_PLUS_SUBSCRIPTION
@@ -292,6 +310,7 @@ class SetkaPlusHandler:
     async def upsert_sticker_pack(
         self, user_id: str, pack_id: str, content: JsonDict
     ) -> JsonDict:
+        await self._assert_plus_active(user_id)
         normalized_pack_id = _clean_str(pack_id, max_len=128)
         if not normalized_pack_id:
             raise SynapseError(400, "pack_id is required", Codes.INVALID_PARAM)
@@ -340,6 +359,7 @@ class SetkaPlusHandler:
         return updated_pack
 
     async def delete_sticker_pack(self, user_id: str, pack_id: str) -> None:
+        await self._assert_plus_active(user_id)
         packs = await self.get_sticker_packs(user_id)
         next_packs = [pack for pack in packs if pack.get("id") != pack_id]
         if len(next_packs) == len(packs):
@@ -354,6 +374,121 @@ class SetkaPlusHandler:
             await self._account_data_handler.remove_account_data_for_user(
                 user_id, AccountDataTypes.SETKA_PLUS_STICKER_PACKS
             )
+
+    async def _assert_plus_active(self, user_id: str) -> None:
+        subscription = await self.get_subscription(user_id)
+        if subscription.get("is_active") is not True:
+            raise SynapseError(403, "Setka Plus subscription is required.", Codes.FORBIDDEN)
+
+    def build_share_url(self, token: str) -> str:
+        return f"{self._share_link_prefix}{token}"
+
+    async def create_share_token(self, user_id: str, pack_id: str) -> str:
+        await self._assert_plus_active(user_id)
+        normalized_pack_id = _clean_str(pack_id, max_len=128)
+        if not normalized_pack_id:
+            raise SynapseError(400, "pack_id is required", Codes.INVALID_PARAM)
+
+        packs = await self.get_sticker_packs(user_id)
+        pack = next(
+            (
+                p
+                for p in packs
+                if isinstance(p, dict) and p.get("id") == normalized_pack_id
+            ),
+            None,
+        )
+        if not pack:
+            raise SynapseError(404, "Sticker pack not found", Codes.NOT_FOUND)
+
+        stickers = pack.get("stickers", [])
+        preview_url = None
+        if isinstance(stickers, list) and stickers:
+            first = stickers[0]
+            if isinstance(first, dict):
+                preview_url = _clean_str(first.get("mxc_url") or first.get("mxcUrl"), max_len=1024)
+
+        payload: JsonDict = {
+            "v": 1,
+            "u": user_id,
+            "p": normalized_pack_id,
+            "iat": _now_ms(),
+            "n": _clean_str(pack.get("name"), max_len=120),
+            "k": _clean_str(pack.get("kind"), max_len=24),
+            "i": preview_url,
+        }
+        payload_b64 = self._b64encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+        sig = hmac.new(self._share_secret, payload_b64.encode("ascii"), hashlib.sha256).digest()
+        sig_b64 = self._b64encode(sig)
+        return f"v1.{payload_b64}.{sig_b64}"
+
+    async def resolve_shared_pack(self, token: str) -> JsonDict:
+        payload = self._decode_share_token(token)
+
+        iat = _clean_timestamp_ms(payload.get("iat")) or 0
+        if iat and self._share_token_ttl_ms > 0 and _now_ms() - iat > self._share_token_ttl_ms:
+            raise SynapseError(404, "Shared pack link has expired", Codes.NOT_FOUND)
+
+        owner_user_id = _clean_str(payload.get("u"), max_len=255)
+        pack_id = _clean_str(payload.get("p"), max_len=128)
+        if not owner_user_id or not pack_id:
+            raise SynapseError(400, "Invalid shared pack token", Codes.INVALID_PARAM)
+
+        packs = await self.get_sticker_packs(owner_user_id)
+        pack = next((p for p in packs if isinstance(p, dict) and p.get("id") == pack_id), None)
+        if not pack:
+            raise SynapseError(404, "Sticker pack not found", Codes.NOT_FOUND)
+
+        result = dict(pack)
+        result["owner_user_id"] = owner_user_id
+        return result
+
+    async def import_shared_pack(self, user_id: str, token: str) -> JsonDict:
+        await self._assert_plus_active(user_id)
+        shared_pack = await self.resolve_shared_pack(token)
+        new_pack_id = uuid.uuid4().hex
+        payload: JsonDict = {
+            "name": shared_pack.get("name"),
+            "kind": shared_pack.get("kind"),
+            "stickers": shared_pack.get("stickers", []),
+        }
+        return await self.upsert_sticker_pack(user_id, new_pack_id, payload)
+
+    def _decode_share_token(self, token: str) -> JsonDict:
+        if not isinstance(token, str) or not token.strip():
+            raise SynapseError(400, "token is required", Codes.MISSING_PARAM)
+        parts = token.strip().split(".")
+        if len(parts) != 3 or parts[0] != "v1":
+            raise SynapseError(400, "Invalid shared pack token", Codes.INVALID_PARAM)
+
+        payload_b64 = parts[1]
+        sig_b64 = parts[2]
+        if not payload_b64 or not sig_b64:
+            raise SynapseError(400, "Invalid shared pack token", Codes.INVALID_PARAM)
+
+        expected_sig = hmac.new(self._share_secret, payload_b64.encode("ascii"), hashlib.sha256).digest()
+        supplied_sig = self._b64decode(sig_b64)
+        if not hmac.compare_digest(expected_sig, supplied_sig):
+            raise SynapseError(400, "Invalid shared pack token", Codes.INVALID_PARAM)
+
+        payload_raw = self._b64decode(payload_b64)
+        try:
+            payload = json.loads(payload_raw.decode("utf-8"))
+        except Exception:
+            raise SynapseError(400, "Invalid shared pack token", Codes.INVALID_PARAM)
+        if not isinstance(payload, dict):
+            raise SynapseError(400, "Invalid shared pack token", Codes.INVALID_PARAM)
+        return payload
+
+    @staticmethod
+    def _b64encode(data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+    @staticmethod
+    def _b64decode(data: str) -> bytes:
+        raw = data.encode("ascii")
+        padding = b"=" * (-len(raw) % 4)
+        return base64.urlsafe_b64decode(raw + padding)
 
     async def get_payments(self, user_id: str) -> list[JsonDict]:
         raw = await self._store.get_global_account_data_by_type_for_user(
