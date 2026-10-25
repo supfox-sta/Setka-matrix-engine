@@ -156,6 +156,86 @@ class SetkaPlusPlansServlet(RestServlet):
         return await self.on_PUT(request)
 
 
+class SetkaPlusServerConfigServlet(RestServlet):
+    PATTERNS = admin_patterns("/setka_plus/server_config$")
+
+    def __init__(self, hs: "HomeServer"):
+        self.auth = hs.get_auth()
+        self.handler = hs.get_setka_plus_handler()
+
+    async def on_GET(self, request: SynapseRequest) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        return 200, {"config": self.handler.get_server_config()}
+
+    async def on_PUT(self, request: SynapseRequest) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        body = parse_json_object_from_request(request)
+        updates = body.get("config")
+        if not isinstance(updates, dict):
+            updates = body
+        config = await self.handler.set_server_config(updates)
+        return 200, {"config": config}
+
+
+class SetkaPlusVouchersServlet(RestServlet):
+    PATTERNS = admin_patterns("/setka_plus/vouchers$")
+
+    def __init__(self, hs: "HomeServer"):
+        self.auth = hs.get_auth()
+        self.handler = hs.get_setka_plus_handler()
+
+    async def on_GET(self, request: SynapseRequest) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        vouchers = await self.handler.list_vouchers()
+        return 200, {"vouchers": vouchers}
+
+    async def on_POST(self, request: SynapseRequest) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        body = parse_json_object_from_request(request)
+        voucher = await self.handler.create_voucher(body)
+        return 200, {"voucher": voucher}
+
+
+class SetkaPlusVoucherDetailServlet(RestServlet):
+    PATTERNS = admin_patterns("/setka_plus/vouchers/(?P<code>[^/]*)$")
+
+    def __init__(self, hs: "HomeServer"):
+        self.auth = hs.get_auth()
+        self.handler = hs.get_setka_plus_handler()
+
+    async def on_GET(self, request: SynapseRequest, code: str) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        voucher = await self.handler.get_voucher(code)
+        return 200, {"voucher": voucher}
+
+    async def on_PUT(self, request: SynapseRequest, code: str) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        body = parse_json_object_from_request(request)
+        voucher = await self.handler.update_voucher(code, body)
+        return 200, {"voucher": voucher}
+
+    async def on_POST(self, request: SynapseRequest, code: str) -> tuple[int, JsonDict]:
+        return await self.on_PUT(request, code)
+
+    async def on_DELETE(self, request: SynapseRequest, code: str) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        result = await self.handler.delete_voucher(code)
+        return 200, result
+
+
+class SetkaPlusVoucherRedemptionsServlet(RestServlet):
+    PATTERNS = admin_patterns("/setka_plus/vouchers/(?P<code>[^/]*)/redemptions$")
+
+    def __init__(self, hs: "HomeServer"):
+        self.auth = hs.get_auth()
+        self.handler = hs.get_setka_plus_handler()
+
+    async def on_GET(self, request: SynapseRequest, code: str) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        redemptions = await self.handler.get_voucher_redemptions(code)
+        return 200, {"code": code, "redemptions": redemptions}
+
+
 class SetkaAdminProfileServlet(RestServlet):
     PATTERNS = admin_patterns("/setka/users/(?P<user_id>[^/]*)/profile$")
 
@@ -253,7 +333,7 @@ class SetkaAdminStickerPackDetailServlet(RestServlet):
         if not UserID.is_valid(user_id):
             raise SynapseError(400, "Invalid user_id", Codes.INVALID_PARAM)
         body = parse_json_object_from_request(request)
-        pack = await self.handler.upsert_sticker_pack(user_id, pack_id, body)
+        pack = await self.handler.upsert_sticker_pack(user_id, pack_id, body, admin_override=True)
         return 200, {"user_id": user_id, "pack": pack}
 
     async def on_POST(self, request: SynapseRequest, user_id: str, pack_id: str) -> tuple[int, JsonDict]:
@@ -263,7 +343,7 @@ class SetkaAdminStickerPackDetailServlet(RestServlet):
         await assert_requester_is_admin(self.auth, request)
         if not UserID.is_valid(user_id):
             raise SynapseError(400, "Invalid user_id", Codes.INVALID_PARAM)
-        await self.handler.delete_sticker_pack(user_id, pack_id)
+        await self.handler.delete_sticker_pack(user_id, pack_id, admin_override=True)
         return 200, {"user_id": user_id, "deleted": pack_id}
 
 
@@ -278,7 +358,7 @@ class SetkaAdminStickerPackShareServlet(RestServlet):
         await assert_requester_is_admin(self.auth, request)
         if not UserID.is_valid(user_id):
             raise SynapseError(400, "Invalid user_id", Codes.INVALID_PARAM)
-        token = await self.handler.create_share_token(user_id, pack_id)
+        token = await self.handler.create_share_token(user_id, pack_id, admin_override=True)
         pack = await self.handler.resolve_shared_pack(token)
         return 200, {
             "user_id": user_id,
@@ -309,12 +389,49 @@ class SetkaAdminContactsServlet(RestServlet):
         }
 
 
+class SetkaAdminConfirmEmailServlet(RestServlet):
+    PATTERNS = admin_patterns("/setka/users/(?P<user_id>[^/]*)/email/confirm$")
+
+    def __init__(self, hs: "HomeServer"):
+        self.auth = hs.get_auth()
+        self.profile_handler = hs.get_setka_profile_handler()
+        self.threepid_handler = hs.get_setka_threepid_handler()
+
+    async def on_POST(self, request: SynapseRequest, user_id: str) -> tuple[int, JsonDict]:
+        await assert_requester_is_admin(self.auth, request)
+        if not UserID.is_valid(user_id):
+            raise SynapseError(400, "Invalid user_id", Codes.INVALID_PARAM)
+        body = parse_json_object_from_request(request)
+        email = body.get("email") if isinstance(body, dict) else None
+        if email is not None and not isinstance(email, str):
+            raise SynapseError(400, "email must be a string", Codes.INVALID_PARAM)
+        confirmed_email = await self.threepid_handler.admin_confirm_email(
+            user_id,
+            email=email.strip() if isinstance(email, str) else None,
+        )
+        profile = await self.profile_handler.get_profile(
+            user_id,
+            requester_user_id=user_id,
+            include_private=True,
+        )
+        return 200, {
+            "user_id": user_id,
+            "email": confirmed_email,
+            "profile": profile,
+        }
+
+
 def register_servlets(hs: "HomeServer", http_server: HttpServer) -> None:
     SetkaPlusUserServlet(hs).register(http_server)
     SetkaPlusActivateUserServlet(hs).register(http_server)
     SetkaPlusPaymentsServlet(hs).register(http_server)
     SetkaPlusPlansServlet(hs).register(http_server)
+    SetkaPlusServerConfigServlet(hs).register(http_server)
+    SetkaPlusVouchersServlet(hs).register(http_server)
+    SetkaPlusVoucherDetailServlet(hs).register(http_server)
+    SetkaPlusVoucherRedemptionsServlet(hs).register(http_server)
     SetkaAdminProfileServlet(hs).register(http_server)
+    SetkaAdminConfirmEmailServlet(hs).register(http_server)
     SetkaAdminPrivacyServlet(hs).register(http_server)
     SetkaAdminStickerPacksServlet(hs).register(http_server)
     SetkaAdminStickerPackDetailServlet(hs).register(http_server)

@@ -832,6 +832,15 @@ def _can_send_event(event: "EventBase", auth_events: StateMap["EventBase"]) -> b
     user_level = get_user_power_level(event.user_id, auth_events)
 
     if user_level < send_level:
+        from synapse.handlers.setka_channels import (
+            setka_channel_thread_comment_send_level,
+        )
+
+        override = setka_channel_thread_comment_send_level(event, auth_events)
+        if override is not None:
+            send_level = override
+
+    if user_level < send_level:
         raise UnstableSpecAuthError(
             403,
             "You don't have permission to post that to the room. "

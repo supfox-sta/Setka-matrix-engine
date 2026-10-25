@@ -97,6 +97,32 @@ class SetkaPublicProfileRestServlet(RestServlet):
         return 200, dict(data)
 
 
+class SetkaStructuredProfileRestServlet(RestServlet):
+    """Read Setka profile extras in the same wrapped shape used by Setka admin tools."""
+
+    PATTERNS = client_patterns("/setka/users/(?P<user_id>[^/]*)/profile$")
+
+    def __init__(self, hs: "HomeServer"):
+        super().__init__()
+        self._auth = hs.get_auth()
+        self._handler = hs.get_setka_profile_handler()
+
+    async def on_GET(self, request: "SynapseRequest", user_id: str) -> tuple[int, "JsonDict"]:
+        requester = await self._auth.get_user_by_req(request)
+        requester_user_id = requester.user.to_string()
+        include_private = requester_user_id == user_id
+        data = await self._handler.get_profile(
+            user_id,
+            requester_user_id=requester_user_id,
+            include_private=include_private,
+        )
+        return 200, {
+            "user_id": user_id,
+            "profile": dict(data),
+        }
+
+
 def register_servlets(hs: "HomeServer", http_server) -> None:
     SetkaMyProfileRestServlet(hs).register(http_server)
     SetkaPublicProfileRestServlet(hs).register(http_server)
+    SetkaStructuredProfileRestServlet(hs).register(http_server)

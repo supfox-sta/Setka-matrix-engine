@@ -35,6 +35,7 @@ from synapse.api.constants import (
     GuestAccess,
     HistoryVisibility,
     JoinRules,
+    MAIN_TIMELINE,
     Membership,
     RelationTypes,
     UserTypes,
@@ -1461,9 +1462,14 @@ class EventCreationHandler:
         # Don't attempt to start a thread if the parent event is a relation.
         elif relation.rel_type == RelationTypes.THREAD:
             if await self.store.event_includes_relation(relation.parent_id):
-                raise SynapseError(
-                    400, "Cannot start threads from an event with a relation"
-                )
+                # Replies inside an existing thread point at a comment (which
+                # itself has an m.thread relation). That is fine; only block
+                # starting a new thread from an unrelated related event.
+                thread_id = await self.store.get_thread_id(relation.parent_id)
+                if thread_id == MAIN_TIMELINE:
+                    raise SynapseError(
+                        400, "Cannot start threads from an event with a relation"
+                    )
 
     @measure_func("handle_new_client_event")
     async def handle_new_client_event(

@@ -81,10 +81,17 @@ from synapse.handlers.account import AccountHandler
 from synapse.handlers.account_data import AccountDataHandler
 from synapse.handlers.contact_list import ContactListHandler
 from synapse.handlers.setka_profile import SetkaProfileHandler
+from synapse.handlers.setka_lite import SetkaLiteHandler
 from synapse.handlers.setka_privacy import SetkaPrivacyHandler
 from synapse.handlers.room_wallpaper import RoomWallpaperHandler
 from synapse.handlers.setka_plus import SetkaPlusHandler
 from synapse.handlers.setka_threepid import SetkaThreepidHandler
+from synapse.handlers.setka_login import SetkaLoginHandler
+from synapse.handlers.setka_channels import SetkaChannelsHandler
+from synapse.handlers.setka_feed import SetkaFeedHandler
+from synapse.handlers.setka_analytics import SetkaAnalyticsHandler
+from synapse.handlers.setka_sydent import SetkaSydentHandler
+from synapse.handlers.setka_bots import SetkaBotsHandler
 from synapse.handlers.account_validity import AccountValidityHandler
 from synapse.handlers.admin import AdminHandler
 from synapse.handlers.appservice import ApplicationServicesHandler
@@ -314,6 +321,8 @@ class HomeServer(metaclass=abc.ABCMeta):
         "admin",
         "account_validity",
         "auth",
+        "setka_sydent",
+        "setka_bots",
         "deactivate_account",
         "delayed_events",
         "e2e_keys",  # for the `delete_old_otks` scheduled-task handler
@@ -1179,6 +1188,10 @@ class HomeServer(metaclass=abc.ABCMeta):
         return SetkaProfileHandler(self)
 
     @cache_in_self
+    def get_setka_lite_handler(self) -> SetkaLiteHandler:
+        return SetkaLiteHandler(self)
+
+    @cache_in_self
     def get_setka_privacy_handler(self) -> SetkaPrivacyHandler:
         return SetkaPrivacyHandler(self)
 
@@ -1193,6 +1206,30 @@ class HomeServer(metaclass=abc.ABCMeta):
     @cache_in_self
     def get_setka_threepid_handler(self) -> SetkaThreepidHandler:
         return SetkaThreepidHandler(self)
+
+    @cache_in_self
+    def get_setka_login_handler(self) -> SetkaLoginHandler:
+        return SetkaLoginHandler(self)
+
+    @cache_in_self
+    def get_setka_sydent_handler(self) -> SetkaSydentHandler:
+        return SetkaSydentHandler(self)
+
+    @cache_in_self
+    def get_setka_channels_handler(self) -> SetkaChannelsHandler:
+        return SetkaChannelsHandler(self)
+
+    @cache_in_self
+    def get_setka_feed_handler(self) -> SetkaFeedHandler:
+        return SetkaFeedHandler(self)
+
+    @cache_in_self
+    def get_setka_analytics_handler(self) -> SetkaAnalyticsHandler:
+        return SetkaAnalyticsHandler(self)
+
+    @cache_in_self
+    def get_setka_bots_handler(self) -> SetkaBotsHandler:
+        return SetkaBotsHandler(self)
 
     @cache_in_self
     def get_room_summary_handler(self) -> RoomSummaryHandler:

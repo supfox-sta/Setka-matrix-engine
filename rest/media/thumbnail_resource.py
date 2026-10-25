@@ -67,6 +67,31 @@ class ThumbnailResource(RestServlet):
         self.dynamic_thumbnails = hs.config.media.dynamic_thumbnails
         self.thumbnail_provider = ThumbnailProvider(hs, media_repo, media_storage)
 
+    async def _setka_is_public_media(self, server_name: str, media_id: str) -> bool:
+        mxc = f"mxc://{server_name}/{media_id}"
+
+        def _txn(txn) -> bool:  # type: ignore[no-untyped-def]
+            txn.execute("SELECT 1 FROM profiles WHERE avatar_url = ? LIMIT 1", (mxc,))
+            if txn.fetchone():
+                return True
+            txn.execute(
+                "SELECT 1 FROM room_stats_state WHERE avatar = ? LIMIT 1", (mxc,)
+            )
+            if txn.fetchone():
+                return True
+            txn.execute(
+                "SELECT 1 FROM account_data WHERE account_data_type = ? "
+                "AND content LIKE ? LIMIT 1",
+                ("io.setka.profile", f"%{mxc}%"),
+            )
+            return txn.fetchone() is not None
+
+        try:
+            return await self.store.db_pool.runInteraction("setka_public_media", _txn)
+        except Exception:
+            logger.exception("setka public media check failed")
+            return False
+
     async def on_GET(
         self, request: SynapseRequest, server_name: str, media_id: str
     ) -> None:
@@ -86,6 +111,11 @@ class ThumbnailResource(RestServlet):
         max_timeout_ms = min(max_timeout_ms, MAXIMUM_ALLOWED_MAX_TIMEOUT_MS)
 
         if self._is_mine_server_name(server_name):
+            # Setka: avatars / profile banners / room avatars are public (share page), so
+            # small thumbnails of exactly that media are served without authentication.
+            public = False
+            if width <= 800 and height <= 800:
+                public = await self._setka_is_public_media(server_name, media_id)
             if self.dynamic_thumbnails:
                 await self.thumbnail_provider.select_or_generate_local_thumbnail(
                     request,
@@ -96,7 +126,7 @@ class ThumbnailResource(RestServlet):
                     m_type,
                     max_timeout_ms,
                     False,
-                    allow_authenticated=False,
+                    allow_authenticated=public,
                 )
             else:
                 await self.thumbnail_provider.respond_local_thumbnail(
@@ -108,7 +138,7 @@ class ThumbnailResource(RestServlet):
                     m_type,
                     max_timeout_ms,
                     False,
-                    allow_authenticated=False,
+                    allow_authenticated=public,
                 )
             self.media_repo.mark_recently_accessed(None, media_id)
         else:

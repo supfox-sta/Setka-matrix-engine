@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, TypedDict
 
 from synapse.api.constants import AccountDataTypes
+from synapse.api.errors import Codes, SynapseError
 from synapse.types import JsonDict
 
 if TYPE_CHECKING:
@@ -27,9 +28,11 @@ class SetkaProfile(TypedDict, total=False):
     status_emoji_mxc: str
     background_mxc: str
     email: str
+    email_confirmed: bool
     phone: str
     presence_state: Literal["online", "recently", "this_week", "long_ago"]
     last_seen_ts: int
+    call_visibility: Literal["everyone", "contacts", "nobody"]
     privacy: JsonDict
     updated_at: int
 
@@ -41,6 +44,7 @@ DEFAULT_PROFILE: SetkaProfile = {
 
 class SetkaProfileHandler:
     def __init__(self, hs: "HomeServer"):
+        self._hs = hs
         self._account_data_handler = hs.get_account_data_handler()
         self._store = hs.get_datastores().main
         self._clock = hs.get_clock()
@@ -84,11 +88,21 @@ class SetkaProfileHandler:
         reveal_phone = include_private or requester_user_id == user_id or privacy["phone_visibility"] != "nobody"
         reveal_last_seen = include_private or requester_user_id == user_id or privacy["last_seen_visibility"] != "nobody"
 
+        profile_data = await self._store.get_global_account_data_by_type_for_user(
+            user_id, AccountDataTypes.SETKA_PROFILE
+        )
         threepids = await self._store.user_get_threepids(user_id)
         if reveal_email:
             email = next((tp.address for tp in threepids if tp.medium == "email" and tp.address), None)
             if email:
                 result["email"] = email
+                if include_private:
+                    result["email_confirmed"] = True
+            elif include_private and isinstance(profile_data, dict):
+                stored_email = profile_data.get("email")
+                if isinstance(stored_email, str) and stored_email.strip():
+                    result["email"] = stored_email.strip()
+                    result["email_confirmed"] = profile_data.get("email_confirmed") is True
         if reveal_phone:
             phone = next((tp.address for tp in threepids if tp.medium == "msisdn" and tp.address), None)
             if phone:
@@ -96,6 +110,8 @@ class SetkaProfileHandler:
         if reveal_last_seen:
             presence = await self._build_presence(user_id)
             result.update(presence)
+
+        result["call_visibility"] = privacy["call_visibility"]
 
         if include_private or requester_user_id == user_id:
             result["privacy"] = dict(privacy)
@@ -125,6 +141,13 @@ class SetkaProfileHandler:
         if "status_emoji_mxc" in content:
             status = content["status_emoji_mxc"]
             if isinstance(status, str) and status.strip():
+                subscription = await self._hs.get_setka_plus_handler().get_subscription(user_id)
+                if subscription.get("is_active") is not True:
+                    raise SynapseError(
+                        403,
+                        "Setka Plus subscription is required for status emoji.",
+                        Codes.FORBIDDEN,
+                    )
                 current["status_emoji_mxc"] = status.strip()
             else:
                 current.pop("status_emoji_mxc", None)
@@ -138,6 +161,7 @@ class SetkaProfileHandler:
 
         current["updated_at"] = int(self._clock.time_msec())
         current.pop("email", None)
+        current.pop("email_confirmed", None)
         current.pop("phone", None)
         current.pop("presence_state", None)
         current.pop("last_seen_ts", None)

@@ -44,6 +44,7 @@ from synapse.http.servlet import validate_json_object
 from synapse.storage.controllers.state import server_acl_evaluator_from_event
 from synapse.types import EventID, JsonDict, RoomID, StrCollection, UserID
 from synapse.types.rest import RequestBodyModel
+from synapse.util.frozenutils import unfreeze
 
 
 class EventValidator:
@@ -135,7 +136,11 @@ class EventValidator:
 
         # If the event contains a mentions key, validate it.
         if EventContentFields.MENTIONS in event.content:
-            validate_json_object(event.content[EventContentFields.MENTIONS], Mentions)
+            # Event content is frozen (lists become tuples); Pydantic expects lists.
+            mentions_content = unfreeze(
+                event.content[EventContentFields.MENTIONS]
+            )
+            validate_json_object(mentions_content, Mentions)
 
     def _validate_retention(self, event: EventBase) -> None:
         """Checks that an event that defines the retention policy for a room respects the

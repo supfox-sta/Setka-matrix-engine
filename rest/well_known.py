@@ -85,6 +85,11 @@ class WellKnownBuilder:
                 if key not in result:
                     result[key] = value
 
+        if self._config.experimental.msc4143_enabled:
+            transports = self._config.matrix_rtc.transports
+            if transports and "org.matrix.msc4143.rtc_foci" not in result:
+                result["org.matrix.msc4143.rtc_foci"] = transports
+
         return result
 
 
